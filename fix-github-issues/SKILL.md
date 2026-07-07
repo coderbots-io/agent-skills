@@ -34,7 +34,7 @@ gh issue list --label claude --state open --json number,title,labels,body,author
 ### 4. (Conditional) Comment the design on the issue
 If the issue requests a design proposal, a plan, an approach discussion, or asks Claude to "explain first" / "describe what you'll do":
 ```
-gh issue comment <N> --body "$(cat <<'EOF'
+gh api --method POST repos/{owner}/{repo}/issues/<N>/comments -f body="$(cat <<'EOF'
 ## Proposed approach
 <design summary>
 
@@ -46,6 +46,7 @@ gh issue comment <N> --body "$(cat <<'EOF'
 EOF
 )"
 ```
+> Use `gh api` (REST) for issue/PR writes, **not** `gh issue comment` / `gh pr create` / `gh issue edit`. See the note under step 8 — the bot runs as a GitHub App installation token, and gh's high-level commands go through GraphQL, which rejects those tokens with `Resource not accessible by integration` even when the REST endpoint works. `{owner}`/`{repo}` are auto-filled from the current repo.
 If the issue does NOT request this, skip — go straight to implementation.
 
 ### 5. Create a worktree and implement
@@ -72,7 +73,11 @@ Per CLAUDE.md's "Frontend PR Screenshots" section:
 ### 8. Push and open the PR
 ```
 git push -u origin fix/issue-<N>-<short-slug>
-gh pr create --title "Fix #<N>: <short title>" --body "$(cat <<'EOF'
+gh api --method POST repos/{owner}/{repo}/pulls \
+  -f title="Fix #<N>: <short title>" \
+  -f head="fix/issue-<N>-<short-slug>" \
+  -f base="main" \
+  -f body="$(cat <<'EOF'
 ## Summary
 <1-3 bullets>
 
@@ -90,15 +95,18 @@ Fixes #<N>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 EOF
-)"
+)" \
+  --jq '.html_url'
 ```
+> **Why `gh api` and not `gh pr create`:** the coderbot authenticates as a GitHub App installation token (`ghs_…`). `gh pr create` (and `gh issue comment`/`gh issue edit`) create the resource through GitHub's **GraphQL** API, which rejects installation tokens for these mutations with `Resource not accessible by integration` — even when the App has `pull_requests: write`/`issues: write`. The equivalent **REST** endpoints (`POST /repos/{owner}/{repo}/pulls`, `…/issues/<N>/comments`, `…/issues/<N>/labels`) accept the same token, so call them directly via `gh api`. Confirm the base branch is actually `main` (some repos use `master`) — set `-f base=` accordingly. The `--jq '.html_url'` prints the new PR URL to report back.
 
 ### 9. Label the issue as "fixed"
 Per CLAUDE.md: after the PR is open, add the `fixed` label to the **issue** (not the PR) so the triage state reflects that the fix is in review:
 ```
-gh issue edit <N> --add-label fixed
+gh api --method POST repos/{owner}/{repo}/issues/<N>/labels -f "labels[]=fixed"
 ```
-If the `fixed` label doesn't exist on the repo, create it first:
+(REST, for the same installation-token reason as step 8 — `gh issue edit --add-label` goes through GraphQL and fails.)
+If the `fixed` label doesn't exist on the repo, create it first (this one is already REST under the hood, so it's fine):
 ```
 gh label create fixed --color 99adc1 --description "Claude has written code and created a PR" || true
 ```
