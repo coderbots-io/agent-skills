@@ -161,12 +161,12 @@ Assess against the PR's stated change:
 - ❌ **Not reproduced** — expected change isn't visible
 - ℹ️ **Not UI-visible** — backend-only change, noted without a GIF
 
-Embed the GIF(s) inline using markdown image syntax pointing at the raw URL from step 6. Post via `gh pr comment` with a HEREDOC:
+Embed the GIF(s) inline using markdown image syntax pointing at the raw URL from step 6. Post via `gh api` (REST) with a HEREDOC — **not** `gh pr comment`: the coderbot runs as a GitHub App installation token (`ghs_…`), and `gh pr comment` posts through GraphQL, which rejects those tokens with `Resource not accessible by integration`. The REST endpoint `POST /repos/{owner}/{repo}/issues/{N}/comments` (a PR is an "issue" for comments) accepts the same token:
 
 ```bash
 GIF_URL="https://github.com/$OWNER_REPO/raw/$REVIEW_BRANCH/$ASSET_DIR/pr-$N-review-after.gif"
 
-gh pr comment $N --body "$(cat <<EOF
+gh api --method POST "repos/$OWNER_REPO/issues/$N/comments" -f body="$(cat <<EOF
 ## Automated review
 
 **Verdict:** ✅ Verified
@@ -191,10 +191,11 @@ EOF
 
 For before/after, include two image lines under separate `**Before:**` / `**After:**` bold labels.
 
-If Verified, approve the PR after the comment is posted:
+If Verified, approve the PR after the comment is posted — again via REST (`gh pr review` goes through GraphQL and fails for the installation token):
 ```bash
-gh pr review $N --approve
+gh api --method POST "repos/$OWNER_REPO/pulls/$N/reviews" -f event=APPROVE
 ```
+If this returns `Resource not accessible by integration` or `Review cannot be submitted`, the App may be barred from approving PRs — that's fine, the verdict comment already stands as the record; don't treat it as a failure.
 
 Skip approval for ⚠️ Partial, ❌ Not reproduced, or ℹ️ Not UI-visible verdicts.
 
